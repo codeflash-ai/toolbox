@@ -69,8 +69,8 @@ def nd_to_1d_universal_adapter(np_function, nd_args: NdTupleType, plain_args: tu
 
 
 def nd_to_1d_np_adapter(np_function, nd_args: tp.Tuple[np.ndarray], plain_args: tuple) -> np.ndarray:
-    args = nd_args + plain_args
-    return np_function(*args)
+    # Fast path: avoid tuple concatenation if possible, and unpack directly
+    return np_function(*nd_args, *plain_args)
 
 
 def nd_to_1d_pd_df_adapter(np_function, nd_args: tp.Tuple[pd.DataFrame], plain_args: tuple) -> pd.Series:
@@ -81,12 +81,33 @@ def nd_to_1d_pd_df_adapter(np_function, nd_args: tp.Tuple[pd.DataFrame], plain_a
 
 
 def nd_to_1d_xr_da_adapter(np_function, nd_args: tp.Tuple[xr.DataArray], plain_args: tuple) -> xr.DataArray:
-    origin_dims = nd_args[0].dims
-    transpose_dims = tuple(i for i in origin_dims if i != XR_TIME_DIMENSION) + (XR_TIME_DIMENSION,)
-    np_nd_args = tuple(a.transpose(*transpose_dims).values for a in nd_args)
+    # Cache repeated lookups
+    da0 = nd_args[0]
+    origin_dims = da0.dims
+
+    # Precompute transpose_dims only once
+    if origin_dims[-1] == XR_TIME_DIMENSION:
+        transpose_dims = origin_dims
+        # No need to transpose if already correct
+        np_nd_args = tuple(
+            a.values if a.dims == origin_dims else a.transpose(*origin_dims).values
+            for a in nd_args
+        )
+    else:
+        other_dims = tuple(i for i in origin_dims if i != XR_TIME_DIMENSION)
+        transpose_dims = other_dims + (XR_TIME_DIMENSION,)
+        np_nd_args = tuple(
+            a.transpose(*transpose_dims).values if a.dims != transpose_dims else a.values
+            for a in nd_args
+        )
+
     np_result = nd_to_1d_np_adapter(np_function, np_nd_args, plain_args)
+
+    # Use dict for coords to avoid list construction overhead (faster in xarray)
+    coords = {XR_TIME_DIMENSION: da0.coords[XR_TIME_DIMENSION]}
+
     return xr.DataArray(
         np_result,
         dims=[XR_TIME_DIMENSION],
-        coords=[nd_args[0].coords[XR_TIME_DIMENSION]]
+        coords=coords
     )
