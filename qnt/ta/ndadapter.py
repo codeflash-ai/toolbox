@@ -32,7 +32,18 @@ def nd_np_adapter(d1_function, nd_args: tp.Tuple[np.ndarray], plain_args: tuple)
         args = nd_args + plain_args
         return d1_function(*args)
     nd_args_2d = tuple(a.reshape(-1, shape[-1]) for a in nd_args)
-    result2d = np.array([d1_function(*(a[i] for a in nd_args_2d), *plain_args) for i in range(nd_args_2d[0].shape[0])])
+    stack_len = nd_args_2d[0].shape[0]
+    try:
+        args_2d = nd_args_2d + plain_args
+        res = d1_function(*args_2d)
+        if isinstance(res, np.ndarray) and res.shape == (stack_len, shape[-1]):
+            return res.reshape(shape)
+    except Exception:
+        pass
+
+    result2d = np.empty((stack_len, shape[-1]), dtype=np.result_type(*[a.dtype for a in nd_args_2d]))
+    for i in range(stack_len):
+        result2d[i] = d1_function(*(a[i] for a in nd_args_2d), *plain_args)
     return result2d.reshape(shape)
 
 
@@ -53,9 +64,13 @@ def nd_pd_s_adapter(d1_function, nd_args: tp.Tuple[pd.Series], plain_args: tuple
 def nd_xr_da_adapter(d1_function, nd_args: tp.Tuple[xr.DataArray], plain_args: tuple) -> xr.DataArray:
     origin_dims = nd_args[0].dims
     transpose_dims = tuple(i for i in origin_dims if i != XR_TIME_DIMENSION) + (XR_TIME_DIMENSION,)
-    np_nd_args = tuple(a.transpose(*transpose_dims).values for a in nd_args)
+    np_nd_args = tuple(a.transpose(*transpose_dims).values if a.dims != transpose_dims else a.values
+                      for a in nd_args)
     np_result = nd_np_adapter(d1_function, np_nd_args, plain_args)
-    return xr.DataArray(np_result, dims=transpose_dims, coords=nd_args[0].coords).transpose(*origin_dims)
+    out = xr.DataArray(np_result, dims=transpose_dims, coords=nd_args[0].coords)
+    if transpose_dims == origin_dims:
+        return out
+    return out.transpose(*origin_dims)
 
 
 def nd_to_1d_universal_adapter(np_function, nd_args: NdTupleType, plain_args: tuple) -> NdType:
