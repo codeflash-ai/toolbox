@@ -474,7 +474,7 @@ def build_ev_divide_by_s(fundamental_facts: xr.DataArray) -> xr.DataArray:
 
 
 def get_all_indicator_names():
-    return list(GLOBAL_INDICATORS.keys())
+    return [*GLOBAL_INDICATORS]
 
 
 def get_complex_indicator_names():
