@@ -1,6 +1,6 @@
 import qnt.ta.ndadapter as nda
 from qnt.ta.ema import ema
-from qnt.ta.shift import shift
+from qnt.ta.shift import shift_np_1d, shift
 import numpy as np
 import typing as tp
 from qnt.log import log_info, log_err
@@ -10,8 +10,9 @@ def roc(series: nda.NdType, periods: int = 7) -> nda.NdType:
     """
     Rate of change
     """
-    shifted = shift(series, periods)
-    return 100 * (series / shifted - 1)
+    if isinstance(series, np.ndarray):
+        return _roc_np_1d(series, periods)
+    return nda.nd_universal_adapter(_roc_np_1d, (series,), (periods,))
 
 
 def sroc(series: nda.NdType, ma: tp.Any = 13, periods: int = 21):
@@ -23,6 +24,11 @@ def sroc(series: nda.NdType, ma: tp.Any = 13, periods: int = 21):
         ma = lambda s: ema(s, ma_period)
     smooth = ma(series)
     return roc(smooth, periods)
+
+
+def _roc_np_1d(series: np.ndarray, periods: int) -> np.ndarray:
+    shifted = shift_np_1d(series, periods)
+    return 100 * (series / shifted - 1)
 
 
 if __name__ == '__main__':
